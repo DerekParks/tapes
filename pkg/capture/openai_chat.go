@@ -39,6 +39,7 @@ type chatTool struct {
 type chatMessage struct {
 	Role         string          `json:"role"`
 	Content      string          `json:"content"`
+	Reasoning    string          `json:"reasoning_content"`
 	Refusal      string          `json:"refusal"`
 	ToolCalls    []chatTool      `json:"tool_calls"`
 	FunctionCall *chatFunction   `json:"function_call,omitempty"`
@@ -164,6 +165,7 @@ func (r *openAIChatReducer) stream(ctx context.Context, body io.Reader) (*llm.Ch
 				c.Message.Role = delta.Delta.Role
 			}
 			c.Message.Content += delta.Delta.Content
+			c.Message.Reasoning += delta.Delta.Reasoning
 			c.Message.Refusal += delta.Delta.Refusal
 			if delta.Delta.FunctionCall != nil {
 				if c.Message.FunctionCall == nil {
@@ -252,6 +254,9 @@ func chatResponse(env chatEnvelope, problem string) *llm.ChatResponse {
 		resp.StopReason = first.FinishReason
 		if first.Message.Role != "" {
 			resp.Message.Role = first.Message.Role
+		}
+		if first.Message.Reasoning != "" {
+			resp.Message.Content = append(resp.Message.Content, llm.ContentBlock{Type: "thinking", Thinking: first.Message.Reasoning})
 		}
 		if first.Message.Content != "" {
 			resp.Message.Content = append(resp.Message.Content, llm.ContentBlock{Type: "text", Text: first.Message.Content})

@@ -41,6 +41,31 @@ var _ = Describe("Chat Completions reducer", func() {
 		Expect(resp.Usage.TotalTokens).To(Equal(16))
 	})
 
+	It("keeps reasoning_content as a thinking block ahead of the answer and tool calls", func() {
+		body := chatEvent(`[{"index":0,"delta":{"role":"assistant","content":null}}]`) +
+			chatEvent(`[{"index":0,"delta":{"reasoning_content":"check "}}]`) +
+			chatEvent(`[{"index":0,"delta":{"reasoning_content":"the file"}}]`) +
+			chatEvent(`[{"index":0,"delta":{"content":"reading"}}]`) +
+			chatEvent(`[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"read","arguments":"{\"path\":\"x\"}"}}]},"finish_reason":"tool_calls"}]`) + "data: [DONE]\n\n"
+		resp, err := capture.NewOpenAIChatCompletionsReducer().Reduce(context.Background(), nil, strings.NewReader(body), "text/event-stream")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Done).To(BeTrue())
+		Expect(resp.Message.Content).To(HaveLen(3))
+		Expect(resp.Message.Content[0].Type).To(Equal("thinking"))
+		Expect(resp.Message.Content[0].Thinking).To(Equal("check the file"))
+		Expect(resp.Message.Content[1].Text).To(Equal("reading"))
+		Expect(resp.Message.Content[2].ToolName).To(Equal("read"))
+	})
+
+	It("keeps reasoning_content from a non-streaming response", func() {
+		body := `{"id":"c","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"because","content":"hello"},"finish_reason":"stop"}]}`
+		resp, err := capture.NewOpenAIChatCompletionsReducer().Reduce(context.Background(), nil, strings.NewReader(body), "application/json")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Message.Content).To(HaveLen(2))
+		Expect(resp.Message.Content[0].Thinking).To(Equal("because"))
+		Expect(resp.Message.Content[1].Text).To(Equal("hello"))
+	})
+
 	It("assembles interleaved tool calls by index without mixing arguments", func() {
 		body := chatEvent(`[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"b","type":"function","function":{"name":"second","arguments":"{\"y\":"}},{"index":0,"id":"a","type":"function","function":{"name":"first","arguments":"{\"x\":"}}]}}]`) +
 			chatEvent(`[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}},{"index":1,"function":{"arguments":"2}"}}]},"finish_reason":"tool_calls"}]`) + "data: [DONE]\n\n"

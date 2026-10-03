@@ -66,6 +66,11 @@ func (o *Provider) ParseRequest(payload []byte) (*llm.ChatRequest, error) {
 			converted.Content = []llm.ContentBlock{}
 		}
 
+		if msg.Reasoning != "" {
+			thinking := llm.ContentBlock{Type: "thinking", Thinking: msg.Reasoning}
+			converted.Content = append([]llm.ContentBlock{thinking}, converted.Content...)
+		}
+
 		// Handle tool calls in assistant messages
 		for _, tc := range msg.ToolCalls {
 			var input map[string]any
@@ -176,6 +181,11 @@ func (o *Provider) ParseResponse(payload []byte) (*llm.ChatResponse, error) {
 		}
 	case nil:
 		content = []llm.ContentBlock{}
+	}
+
+	if msg.Reasoning != "" {
+		thinking := llm.ContentBlock{Type: "thinking", Thinking: msg.Reasoning}
+		content = append([]llm.ContentBlock{thinking}, content...)
 	}
 
 	// Handle tool calls

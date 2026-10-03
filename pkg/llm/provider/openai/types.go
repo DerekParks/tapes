@@ -24,6 +24,7 @@ type openaiRequest struct {
 type openaiMessage struct {
 	Role       string `json:"role"`
 	Content    any    `json:"content"` // string or []openaiContentPart for vision
+	Reasoning  string `json:"reasoning_content,omitempty"`
 	Name       string `json:"name,omitempty"`
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	ToolCalls  []struct {

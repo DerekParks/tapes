@@ -204,6 +204,30 @@ var _ = Describe("OpenAI Provider", func() {
 				Expect(req.Messages[0].Content[0].ToolInput).To(HaveKeyWithValue("location", "NYC"))
 			})
 
+			It("keeps assistant reasoning_content as a leading thinking block", func() {
+				payload := []byte(`{
+					"model": "flash",
+					"messages": [
+						{
+							"role": "assistant",
+							"content": "reading",
+							"reasoning_content": "check the file",
+							"tool_calls": [
+								{"id": "call_1", "type": "function", "function": {"name": "read", "arguments": "{\"path\": \"x\"}"}}
+							]
+						}
+					]
+				}`)
+
+				req, err := p.ParseRequest(payload)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(req.Messages[0].Content).To(HaveLen(3))
+				Expect(req.Messages[0].Content[0].Type).To(Equal("thinking"))
+				Expect(req.Messages[0].Content[0].Thinking).To(Equal("check the file"))
+				Expect(req.Messages[0].Content[1].Text).To(Equal("reading"))
+				Expect(req.Messages[0].Content[2].ToolName).To(Equal("read"))
+			})
+
 			It("parses tool result messages", func() {
 				payload := []byte(`{
 					"model": "gpt-4",
