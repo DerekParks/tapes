@@ -15,7 +15,7 @@ The default read API listens on `:8081`. It serves health, derived data, operato
 | --- | --- |
 | Health and contract | `GET /ping`, `GET /openapi`, `GET /swagger`, `GET /metrics` |
 | Browser UI | `GET /`, served only with `--api-web-ui` |
-| Sessions | `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/traces`, `/v1/sessions/{id}/raw_turns` |
+| Sessions | `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/traces`, `/v1/sessions/{id}/raw_turns`, `/v1/sessions/{id}/raw_turns/{raw_turn_id}` |
 | Traces and spans | `/v1/traces`, `/v1/traces/{trace_id}`, `/v1/traces/{trace_id}/spans/{span_id}` |
 | Aggregates | `GET /v1/stats` |
 | MCP | `/v1/mcp` |
@@ -131,6 +131,17 @@ page ends with `next_cursor`; pass it back as `cursor` to continue. Its
 absence is what marks the session's last raw turn — a page shorter than
 `limit` does not. A cursor is opaque and bound to the session it was
 minted for; presenting it on another session is a `400`.
+
+### One raw turn carries its payloads
+
+`GET /v1/sessions/{id}/raw_turns/{raw_turn_id}` returns one row of the
+listing with two more fields: `request`, the provider request body exactly
+as it was captured, and `response`, the reduced response stored beside it.
+Either is `null` when the turn stored none. The id is the `id` the listing
+reports, and it must belong to the session in the path: a raw turn of
+another session is a `404`, as is an unknown session. This is a
+full-payload read, so it counts against the payload concurrency cap and a
+replica at its cap answers `503` with `Retry-After`.
 
 ### Raw turn sizes are capture-time metadata
 

@@ -112,6 +112,93 @@ func (q *Queries) GetRawTurnAttributionForUpdate(ctx context.Context, arg GetRaw
 	return i, err
 }
 
+const getRawTurnBySession = `-- name: GetRawTurnBySession :one
+SELECT r.id, r.source, r.provider, r.agent_name, r.request_id,
+       r.received_at,
+       (CASE WHEN c.id IS NULL THEN r.meta
+             ELSE jsonb_set(r.meta, '{thread_id}', to_jsonb(c.thread_id), true)
+        END)::jsonb AS meta,
+       (CASE WHEN r.meta->>'request_bytes' ~ '^[0-9]{1,18}$'
+             THEN (r.meta->>'request_bytes')::bigint
+             ELSE 0 END)::bigint AS request_bytes,
+       (CASE WHEN r.meta->>'response_bytes' ~ '^[0-9]{1,18}$'
+             THEN (r.meta->>'response_bytes')::bigint
+             ELSE 0 END)::bigint AS response_bytes,
+       COALESCE(octet_length(r.raw_response), 0)::bigint AS raw_response_bytes,
+       r.raw_response_dropped,
+       r.raw_request, r.response
+FROM raw_turns r
+LEFT JOIN LATERAL (
+    SELECT id, harness_id, harness_session_id, thread_id
+    FROM raw_turn_attribution_corrections
+    WHERE org_id = r.org_id AND raw_turn_id = r.id
+    ORDER BY id DESC LIMIT 1
+) c ON TRUE
+WHERE r.org_id = $1
+  AND r.id = $2
+  AND COALESCE((
+      SELECT c2.harness_id FROM raw_turn_attribution_corrections c2
+      WHERE c2.org_id = r.org_id AND c2.raw_turn_id = r.id
+      ORDER BY c2.id DESC LIMIT 1
+  ), r.harness_id) = $3
+  AND COALESCE((
+      SELECT c2.harness_session_id FROM raw_turn_attribution_corrections c2
+      WHERE c2.org_id = r.org_id AND c2.raw_turn_id = r.id
+      ORDER BY c2.id DESC LIMIT 1
+  ), r.harness_session_id) = $4
+`
+
+type GetRawTurnBySessionParams struct {
+	OrgID            pgtype.UUID
+	RawTurnID        int64
+	HarnessID        string
+	HarnessSessionID string
+}
+
+type GetRawTurnBySessionRow struct {
+	ID                 int64
+	Source             string
+	Provider           string
+	AgentName          string
+	RequestID          string
+	ReceivedAt         pgtype.Timestamptz
+	Meta               []byte
+	RequestBytes       int64
+	ResponseBytes      int64
+	RawResponseBytes   int64
+	RawResponseDropped bool
+	RawRequest         []byte
+	Response           []byte
+}
+
+// One raw turn of one session with its request and reduced response.
+// Attribution and sizes resolve as in ListRawTurnHeadersBySession.
+func (q *Queries) GetRawTurnBySession(ctx context.Context, arg GetRawTurnBySessionParams) (GetRawTurnBySessionRow, error) {
+	row := q.db.QueryRow(ctx, getRawTurnBySession,
+		arg.OrgID,
+		arg.RawTurnID,
+		arg.HarnessID,
+		arg.HarnessSessionID,
+	)
+	var i GetRawTurnBySessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Source,
+		&i.Provider,
+		&i.AgentName,
+		&i.RequestID,
+		&i.ReceivedAt,
+		&i.Meta,
+		&i.RequestBytes,
+		&i.ResponseBytes,
+		&i.RawResponseBytes,
+		&i.RawResponseDropped,
+		&i.RawRequest,
+		&i.Response,
+	)
+	return i, err
+}
+
 const insertRawTurn = `-- name: InsertRawTurn :execrows
 INSERT INTO raw_turns (
     org_id, source, provider, agent_name,

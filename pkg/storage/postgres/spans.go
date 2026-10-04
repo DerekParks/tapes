@@ -759,6 +759,47 @@ func (d *Driver) ListRawTurnHeaders(ctx context.Context, orgID, harnessID, harne
 	return out, nil
 }
 
+// GetRawTurn returns one raw turn of one session with its payloads, or
+// nil when the session has no raw turn with that id.
+func (d *Driver) GetRawTurn(ctx context.Context, orgID, harnessID, harnessSessionID string, id int64) (*storage.RawTurnDetail, error) {
+	if d == nil || d.conn == nil {
+		return nil, errors.New("postgres driver not open")
+	}
+	org, err := orgIDFromString(orgKeyForLookup(orgID))
+	if err != nil {
+		return nil, fmt.Errorf("decode org_id: %w", err)
+	}
+	r, err := d.q.GetRawTurnBySession(ctx, gensqlc.GetRawTurnBySessionParams{
+		OrgID:            org,
+		RawTurnID:        id,
+		HarnessID:        harnessID,
+		HarnessSessionID: harnessSessionID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get raw turn: %w", err)
+	}
+	return &storage.RawTurnDetail{
+		RawTurnHeader: storage.RawTurnHeader{
+			ID:                 r.ID,
+			Source:             r.Source,
+			Provider:           r.Provider,
+			AgentName:          r.AgentName,
+			RequestID:          r.RequestID,
+			ReceivedAt:         r.ReceivedAt.Time,
+			Meta:               r.Meta,
+			RequestBytes:       r.RequestBytes,
+			ResponseBytes:      r.ResponseBytes,
+			RawResponseBytes:   r.RawResponseBytes,
+			RawResponseDropped: r.RawResponseDropped,
+		},
+		RawRequest: r.RawRequest,
+		Response:   r.Response,
+	}, nil
+}
+
 // ListSpansMissingPreviews returns one keyset page of spans that carry a
 // payload but no stored preview, in (session_id, trace_id, span_id)
 // order starting strictly after `after`. Implements

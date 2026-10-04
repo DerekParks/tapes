@@ -160,6 +160,22 @@ func (s *Server) mountSessions(router *oasfiber.Router) {
 			JSONResponse(500, "Failed to list raw turns", s.errorSchema()).
 			JSONResponse(501, "Raw turns not supported by this backend", s.errorSchema()))
 
+	router.Get("/v1/sessions/:id/raw_turns/:raw_turn_id", s.handleGetSessionRawTurn,
+		oasfiber.Doc("getRawTurn").
+			Summary("Get one raw turn with its payloads (operator)").
+			Description("One row of the session's wire log with the provider request body and "+
+				"the reduced response, both verbatim as stored. The header fields match the "+
+				"row `GET /v1/sessions/{id}/raw_turns` lists.").
+			Tag("sessions").
+			PathParam("id", oas.String(), oas.ParamDescription("Session id (UUID)")).
+			PathParam("raw_turn_id", oas.Integer(oas.Minimum(1)),
+				oas.ParamDescription("Raw turn id, as listed by the session's raw turn log")).
+			JSONResponse(200, "The raw turn with its request and response", s.schema(RawTurnDetailItem{})).
+			JSONResponse(400, "Missing or malformed id or raw_turn_id", s.errorSchema()).
+			JSONResponse(404, "Session not found, or the session has no such raw turn", s.errorSchema()).
+			JSONResponse(500, "Failed to get raw turn", s.errorSchema()).
+			JSONResponse(501, "Raw turns not supported by this backend", s.errorSchema()))
+
 	router.Get("/v1/sessions/:id", s.handleGetSession,
 		oasfiber.Doc("getSession").
 			Summary("Get a session").

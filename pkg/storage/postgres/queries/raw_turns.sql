@@ -145,6 +145,43 @@ WHERE r.org_id = $1
 ORDER BY r.id ASC
 LIMIT sqlc.arg(page_size);
 
+-- name: GetRawTurnBySession :one
+-- One raw turn of one session with its request and reduced response.
+-- Attribution and sizes resolve as in ListRawTurnHeadersBySession.
+SELECT r.id, r.source, r.provider, r.agent_name, r.request_id,
+       r.received_at,
+       (CASE WHEN c.id IS NULL THEN r.meta
+             ELSE jsonb_set(r.meta, '{thread_id}', to_jsonb(c.thread_id), true)
+        END)::jsonb AS meta,
+       (CASE WHEN r.meta->>'request_bytes' ~ '^[0-9]{1,18}$'
+             THEN (r.meta->>'request_bytes')::bigint
+             ELSE 0 END)::bigint AS request_bytes,
+       (CASE WHEN r.meta->>'response_bytes' ~ '^[0-9]{1,18}$'
+             THEN (r.meta->>'response_bytes')::bigint
+             ELSE 0 END)::bigint AS response_bytes,
+       COALESCE(octet_length(r.raw_response), 0)::bigint AS raw_response_bytes,
+       r.raw_response_dropped,
+       r.raw_request, r.response
+FROM raw_turns r
+LEFT JOIN LATERAL (
+    SELECT id, harness_id, harness_session_id, thread_id
+    FROM raw_turn_attribution_corrections
+    WHERE org_id = r.org_id AND raw_turn_id = r.id
+    ORDER BY id DESC LIMIT 1
+) c ON TRUE
+WHERE r.org_id = sqlc.arg(org_id)
+  AND r.id = sqlc.arg(raw_turn_id)
+  AND COALESCE((
+      SELECT c2.harness_id FROM raw_turn_attribution_corrections c2
+      WHERE c2.org_id = r.org_id AND c2.raw_turn_id = r.id
+      ORDER BY c2.id DESC LIMIT 1
+  ), r.harness_id) = sqlc.arg(harness_id)
+  AND COALESCE((
+      SELECT c2.harness_session_id FROM raw_turn_attribution_corrections c2
+      WHERE c2.org_id = r.org_id AND c2.raw_turn_id = r.id
+      ORDER BY c2.id DESC LIMIT 1
+  ), r.harness_session_id) = sqlc.arg(harness_session_id);
+
 -- name: RawTurnFidelityByIDs :many
 -- Provenance tier for a set of raw turns, for stamping the span projection.
 --

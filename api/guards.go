@@ -52,14 +52,15 @@ import (
 // response). The cancel the lease holds is what stops that timer when the
 // stream ends first, so no timer outlives its request.
 
-// payloadRoutePrefixes are the routes whose responses can carry span
-// payloads, as Fiber prefix (Use) patterns; on them only full-payload
-// reads take a slot. `/v1/traces/:trace_id` covers
-// the span drill-in beneath it by prefix, which is why the list has two
-// entries for three routes — and why the span route is never capped twice.
+// payloadRoutePrefixes are the routes whose responses can carry span or
+// raw turn payloads, as Fiber prefix (Use) patterns; on them only
+// full-payload reads take a slot. `/v1/traces/:trace_id` covers the span
+// drill-in beneath it by prefix, which is why the list has one entry for
+// those two routes — and why the span route is never capped twice.
 // `/v1/traces` itself (the summary list) is payload-free and outside it.
 var payloadRoutePrefixes = []string{
 	"/v1/sessions/:id/traces",
+	"/v1/sessions/:id/raw_turns/:raw_turn_id",
 	"/v1/traces/:trace_id",
 }
 

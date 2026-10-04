@@ -2,7 +2,9 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -68,6 +70,25 @@ type RawTurnListResponse struct {
 	// (pass it as `cursor`). Absent once the page reached the session's
 	// last raw turn.
 	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// RawTurnDetailItem is one wire-log row with its payloads.
+type RawTurnDetailItem struct {
+	RawTurnHeaderItem
+
+	// Request is the provider request body, verbatim as captured; null
+	// when the turn stored none.
+	Request json.RawMessage `json:"request" oas:"type=object,nullable"`
+
+	// Response is the reduced provider response the capture adapter
+	// produced, verbatim as stored; null when the turn stored none.
+	Response json.RawMessage `json:"response" oas:"type=object,nullable"`
+}
+
+// rawTurnReader is the capability interface for reading one raw turn's
+// payloads.
+type rawTurnReader interface {
+	GetRawTurn(ctx context.Context, orgID, harnessID, harnessSessionID string, id int64) (*storage.RawTurnDetail, error)
 }
 
 // A raw-turn page is bounded in rows only: the listing is payload-free,
@@ -333,13 +354,59 @@ func (s *Server) handleListSessionRawTurns(c fiber.Ctx) error {
 	}
 	items := make([]RawTurnHeaderItem, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, RawTurnHeaderItem{
-			ID: r.ID, Source: r.Source, Provider: r.Provider,
-			AgentName: r.AgentName, RequestID: r.RequestID,
-			ReceivedAt: r.ReceivedAt, Meta: r.Meta,
-			RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes,
-			RawResponseBytes: r.RawResponseBytes, RawResponseDropped: r.RawResponseDropped,
-		})
+		items = append(items, rawTurnHeaderItem(r))
 	}
 	return c.JSON(RawTurnListResponse{Items: items, NextCursor: nextCursor})
+}
+
+func rawTurnHeaderItem(r storage.RawTurnHeader) RawTurnHeaderItem {
+	return RawTurnHeaderItem{
+		ID: r.ID, Source: r.Source, Provider: r.Provider,
+		AgentName: r.AgentName, RequestID: r.RequestID,
+		ReceivedAt: r.ReceivedAt, Meta: r.Meta,
+		RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes,
+		RawResponseBytes: r.RawResponseBytes, RawResponseDropped: r.RawResponseDropped,
+	}
+}
+
+// handleGetSessionRawTurn handles GET /v1/sessions/:id/raw_turns/:raw_turn_id.
+func (s *Server) handleGetSessionRawTurn(c fiber.Ctx) error {
+	sessions, ok := s.driver.(sessionsReader)
+	if !ok {
+		return c.Status(fiber.StatusNotImplemented).JSON(llm.ErrorResponse{Error: "sessions not supported by this backend"})
+	}
+	reader, ok := s.driver.(rawTurnReader)
+	if !ok {
+		return c.Status(fiber.StatusNotImplemented).JSON(llm.ErrorResponse{Error: "raw turn log not supported by this backend"})
+	}
+	id := c.Params("id")
+	if _, err := uuid.Parse(id); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(llm.ErrorResponse{Error: "id must be a valid UUID"})
+	}
+	rawTurnID, err := strconv.ParseInt(c.Params("raw_turn_id"), 10, 64)
+	if err != nil || rawTurnID <= 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(llm.ErrorResponse{Error: "raw_turn_id must be a positive integer"})
+	}
+	orgID := singleTenantOrgID
+	sess, err := sessions.GetSessionRecord(c.Context(), orgID, id)
+	if err != nil {
+		s.logger.Error("get session for raw turn", "id", id, "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(llm.ErrorResponse{Error: "failed to load session"})
+	}
+	if sess == nil {
+		return c.Status(fiber.StatusNotFound).JSON(llm.ErrorResponse{Error: "session not found"})
+	}
+	rec, err := reader.GetRawTurn(c.Context(), orgID, sess.HarnessID, sess.HarnessSessionID, rawTurnID)
+	if err != nil {
+		s.logger.Error("get raw turn", "session_id", id, "raw_turn_id", rawTurnID, "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(llm.ErrorResponse{Error: "failed to get raw turn"})
+	}
+	if rec == nil {
+		return c.Status(fiber.StatusNotFound).JSON(llm.ErrorResponse{Error: "raw turn not found"})
+	}
+	return c.JSON(RawTurnDetailItem{
+		RawTurnHeaderItem: rawTurnHeaderItem(rec.RawTurnHeader),
+		Request:           rec.RawRequest,
+		Response:          rec.Response,
+	})
 }

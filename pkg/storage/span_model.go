@@ -131,6 +131,14 @@ type RawTurnHeader struct {
 	RawResponseDropped bool
 }
 
+// RawTurnDetail is one wire-log row with its payloads: the provider
+// request body and the reduced response, verbatim as stored.
+type RawTurnDetail struct {
+	RawTurnHeader
+	RawRequest json.RawMessage
+	Response   json.RawMessage
+}
+
 // PayloadMode selects which payload columns a span read carries. Full
 // reads Input and Output; Preview reads only the deriver-written
 // InputPreview / OutputPreview and leaves Input and Output nil, so a
